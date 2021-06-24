@@ -1,7 +1,10 @@
 use std::collections::HashMap;
+use std::fs::create_dir;
+use std::path::PathBuf;
 
 use chrono::Utc;
 use clap::{Arg, App};
+use dirs::home_dir;
 use preferences::{AppInfo, Preferences, PreferencesMap};
 use reqwest;
 use serde_json;
@@ -26,7 +29,7 @@ async fn fetch_portfolio(api_token: &String) -> Result<String, std::io::Error> {
     Ok(data)
 }
 
-async fn save_portfolio(data: String) -> Result<(), std::io::Error> {
+async fn save_portfolio(data: String, data_dir: PathBuf) -> Result<(), std::io::Error> {
     // Prepare date strings
     let now = Utc::now();
     let utc_now: String = now.to_rfc3339();
@@ -38,8 +41,10 @@ async fn save_portfolio(data: String) -> Result<(), std::io::Error> {
     values.insert("date".to_string(), serde_json::Value::String(utc_now));
 
     // Save to file
-    let mut file = File::create(file_name).await?;
+    let path = data_dir.as_path().join(file_name).to_string_lossy().to_string();
+    let mut file = File::create(&path).await?;
     file.write_all(serde_json::to_string(&values).unwrap().as_bytes()).await?;
+    println!("Data saved to {}!", path);
 
     Ok(())
 }
@@ -52,6 +57,23 @@ fn get_preferences() -> PreferencesMap {
         Ok(prefs) => prefs,
         Err(_) => PreferencesMap::new(),
     }
+}
+
+fn get_data_dir(prefs: &PreferencesMap) -> Result<PathBuf, std::io::Error> {
+    let path = match prefs.contains_key("data_dir") {
+        true => PathBuf::from(prefs.get("data_dir").unwrap()),
+        false => {
+            let mut p = home_dir().unwrap();
+            p.push("CryptoPanicData");
+            p
+        },
+    };
+
+    if !path.exists() {
+        create_dir(&path)?;
+    }
+
+    Ok(path)
 }
 
 #[tokio::main]
@@ -67,6 +89,12 @@ async fn main() {
                 .value_name("API_TOKEN")
                 .multiple(true)
             )
+            .arg(Arg::new("data_dir")
+                .short('d')
+                .long("datadir")
+                .value_name("DATA_DIR")
+                .takes_value(true)
+            )
         )
         .subcommand(App::new("fetch")
             .about("Fetch your portfolio")
@@ -79,16 +107,25 @@ async fn main() {
             prefs.insert("api_token".into(), matches.value_of("api_token").unwrap().into());
         }
 
+        if matches.is_present("data_dir") {
+            let data_dir = matches.value_of("data_dir").unwrap();
+            prefs.insert("data_dir".into(), data_dir.into());
+        }
+
         let result = prefs.save(&APP_INFO, PREFERENCES_KEY);
         assert!(result.is_ok());
     } else if let Some (_) = matches.subcommand_matches("fetch") {
         if !prefs.contains_key("api_token") {
             println!("Please set your API token using 'configure' command")
         } else {
+            let data_dir = match get_data_dir(&prefs) {
+                Ok(path_buf) => path_buf,
+                Err(e) => panic!("Error selecting data dir: {}", e),
+            };
+
             match fetch_portfolio(prefs.get("api_token").unwrap()).await {
                 Ok(data) => {
-                    save_portfolio(data).await.expect("Error saving to file");
-                    println!("Data saved!")
+                    save_portfolio(data, data_dir).await.expect("Error saving to file");
                 },
                 Err(e) => println!("Error fetching data: {}", e)
             }
