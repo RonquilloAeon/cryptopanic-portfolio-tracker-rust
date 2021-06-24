@@ -1,13 +1,17 @@
+use std::collections::HashMap;
+
+use chrono::Utc;
 use clap::{Arg, App};
 use preferences::{AppInfo, Preferences, PreferencesMap};
 use reqwest;
+use serde_json;
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 
 const AUTHOR: &str = "RonquilloAeon";
 const API_BASE_URL: &str = "https://cryptopanic.com/api/v1";
-const APP_INFO: AppInfo = AppInfo { name: "CryptoPanic Portfolio Fetcher", author: AUTHOR };
-const PREFERENCES_KEY: &str = "cryptopanic-portfolio-fetcher/app";
+const APP_INFO: AppInfo = AppInfo { name: "CryptoPanicPortfolioFetcher", author: AUTHOR };
+const PREFERENCES_KEY: &str = "config";
 
 async fn fetch_portfolio(api_token: &String) -> Result<String, std::io::Error> {
     let client = reqwest::Client::new();
@@ -23,8 +27,19 @@ async fn fetch_portfolio(api_token: &String) -> Result<String, std::io::Error> {
 }
 
 async fn save_portfolio(data: String) -> Result<(), std::io::Error> {
-    let mut file = File::create("portfolio.json").await?;
-    file.write_all(data.as_bytes()).await?;
+    // Prepare date strings
+    let now = Utc::now();
+    let utc_now: String = now.to_rfc3339();
+    let file_name_date_part = now.format("%Y-%m-%d-%H-%M").to_string();
+    let file_name = format!("{}_data.json", file_name_date_part);
+
+    // Deserialize portfolio data
+    let mut values: HashMap<String, serde_json::Value> = serde_json::from_str(&data[..])?;
+    values.insert("date".to_string(), serde_json::Value::String(utc_now));
+
+    // Save to file
+    let mut file = File::create(file_name).await?;
+    file.write_all(serde_json::to_string(&values).unwrap().as_bytes()).await?;
 
     Ok(())
 }
