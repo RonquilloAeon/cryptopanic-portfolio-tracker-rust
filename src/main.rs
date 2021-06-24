@@ -53,7 +53,7 @@ async fn main() {
                 .multiple(true)
             )
         )
-        .subcommand(App::new("run")
+        .subcommand(App::new("fetch")
             .about("Fetch your portfolio")
         )
         .get_matches();
@@ -66,7 +66,7 @@ async fn main() {
 
         let result = prefs.save(&APP_INFO, PREFERENCES_KEY);
         assert!(result.is_ok());
-    } else if let Some (_) = matches.subcommand_matches("run") {
+    } else if let Some (_) = matches.subcommand_matches("fetch") {
         if !prefs.contains_key("api_token") {
             println!("Please set your API token using 'configure' command")
         } else {
