@@ -19,7 +19,7 @@ const APP_INFO: AppInfo = AppInfo {
 };
 const PREFERENCES_KEY: &str = "config";
 
-async fn fetch_portfolio(api_token: &String) -> Result<String, std::io::Error> {
+async fn fetch_portfolio_data(api_token: &String) -> Result<String, std::io::Error> {
     let client = reqwest::Client::new();
     let data = client
         .get(format!("{}/portfolio/", API_BASE_URL))
@@ -34,16 +34,25 @@ async fn fetch_portfolio(api_token: &String) -> Result<String, std::io::Error> {
     Ok(data)
 }
 
-async fn save_portfolio(data: String, data_dir: PathBuf) -> Result<(), std::io::Error> {
-    // Prepare date strings
-    let now = Utc::now();
-    let utc_now: String = now.to_rfc3339();
-    let file_name_date_part = now.format("%Y-%m-%d-%H-%M").to_string();
-    let file_name = format!("{}_data.json", file_name_date_part);
+fn process_portfolio_data(
+    data: String,
+) -> Result<HashMap<String, serde_json::Value>, std::io::Error> {
+    let now = Utc::now().to_rfc3339();
 
-    // Deserialize portfolio data
+    // Deserialize portfolio data and add date
     let mut values: HashMap<String, serde_json::Value> = serde_json::from_str(&data[..])?;
-    values.insert("date".to_string(), serde_json::Value::String(utc_now));
+    values.insert("date".to_string(), serde_json::Value::String(now));
+
+    Ok(values)
+}
+
+async fn save_portfolio(
+    data: HashMap<String, serde_json::Value>,
+    data_dir: PathBuf,
+) -> Result<(), std::io::Error> {
+    // Get file name
+    let file_name_date_part = Utc::now().format("%Y-%m-%d-%H-%M").to_string();
+    let file_name = format!("{}_data.json", file_name_date_part);
 
     // Save to file
     let path = data_dir
@@ -52,7 +61,7 @@ async fn save_portfolio(data: String, data_dir: PathBuf) -> Result<(), std::io::
         .to_string_lossy()
         .to_string();
     let mut file = File::create(&path).await?;
-    file.write_all(serde_json::to_string(&values).unwrap().as_bytes())
+    file.write_all(serde_json::to_string(&data).unwrap().as_bytes())
         .await?;
     println!("Data saved to {}!", path);
 
@@ -83,6 +92,15 @@ fn get_data_dir(prefs: &PreferencesMap) -> Result<PathBuf, std::io::Error> {
     }
 
     Ok(path)
+}
+
+fn print_portfolio_data(data: &HashMap<String, serde_json::Value>) {
+    for currency in &["BTC", "USD"] {
+        println!(
+            "Total ({}): {}",
+            currency, data["portfolio"]["totals"][currency]
+        )
+    }
 }
 
 fn manage_configuration(prefs: &mut PreferencesMap, matches: &ArgMatches) {
@@ -128,13 +146,20 @@ async fn run_fetch_portfolio(
             Err(e) => panic!("Error selecting data dir: {}", e),
         };
 
-        match fetch_portfolio(prefs.get("api-token").unwrap()).await {
-            Ok(data) => {
+        let results = fetch_portfolio_data(prefs.get("api-token").unwrap()).await;
+
+        if results.is_ok() {
+            let data = process_portfolio_data(results.unwrap()).unwrap();
+
+            print_portfolio_data(&data);
+
+            if !matches.is_present("no_save") {
                 save_portfolio(data, data_dir)
                     .await
-                    .expect("Error saving to file");
+                    .expect("Error saving portfolio data to file");
             }
-            Err(e) => println!("Error fetching data: {}", e),
+        } else {
+            println!("Error fetching data: {}", results.err().unwrap())
         }
     }
 
@@ -171,13 +196,21 @@ async fn main() {
                         .multiple(true),
                 ),
         )
-        .subcommand(App::new("fetch").about("Fetch your portfolio"))
+        .subcommand(
+            App::new("fetch").about("Fetch your portfolio").arg(
+                Arg::new("no_save")
+                    .short('n')
+                    .long("no-save")
+                    .value_name("NO_SAVE")
+                    .takes_value(false),
+            ),
+        )
         .get_matches();
 
     // Let's go!
     if let Some(ref matches) = matches.subcommand_matches("configure") {
         manage_configuration(&mut prefs, &matches)
-    } else if let Some(_) = matches.subcommand_matches("fetch") {
-        run_fetch_portfolio(&prefs, &matches).await.unwrap();
+    } else if let Some(ref matches) = matches.subcommand_matches("fetch") {
+        run_fetch_portfolio(&prefs, &matches).await.unwrap()
     }
 }
