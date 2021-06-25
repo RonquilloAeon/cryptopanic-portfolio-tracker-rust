@@ -116,6 +116,31 @@ fn manage_configuration(prefs: &mut PreferencesMap, matches: &ArgMatches) {
     }
 }
 
+async fn run_fetch_portfolio(
+    prefs: &PreferencesMap,
+    matches: &ArgMatches,
+) -> Result<(), std::io::Error> {
+    if !prefs.contains_key("api-token") {
+        println!("Please set your API token using 'configure' command")
+    } else {
+        let data_dir = match get_data_dir(&prefs) {
+            Ok(path_buf) => path_buf,
+            Err(e) => panic!("Error selecting data dir: {}", e),
+        };
+
+        match fetch_portfolio(prefs.get("api-token").unwrap()).await {
+            Ok(data) => {
+                save_portfolio(data, data_dir)
+                    .await
+                    .expect("Error saving to file");
+            }
+            Err(e) => println!("Error fetching data: {}", e),
+        }
+    }
+
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() {
     let mut prefs = get_preferences();
@@ -153,22 +178,6 @@ async fn main() {
     if let Some(ref matches) = matches.subcommand_matches("configure") {
         manage_configuration(&mut prefs, &matches)
     } else if let Some(_) = matches.subcommand_matches("fetch") {
-        if !prefs.contains_key("api-token") {
-            println!("Please set your API token using 'configure' command")
-        } else {
-            let data_dir = match get_data_dir(&prefs) {
-                Ok(path_buf) => path_buf,
-                Err(e) => panic!("Error selecting data dir: {}", e),
-            };
-
-            match fetch_portfolio(prefs.get("api-token").unwrap()).await {
-                Ok(data) => {
-                    save_portfolio(data, data_dir)
-                        .await
-                        .expect("Error saving to file");
-                }
-                Err(e) => println!("Error fetching data: {}", e),
-            }
-        }
+        run_fetch_portfolio(&prefs, &matches).await.unwrap();
     }
 }
