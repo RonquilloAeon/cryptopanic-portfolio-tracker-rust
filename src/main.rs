@@ -77,7 +77,14 @@ async fn main() {
 
     // Let's go!
     if let Some(ref matches) = matches.subcommand_matches("configure") {
-        configure::manage_configuration(&mut prefs, &matches)
+        let changed = configure::manage_configuration(&mut prefs, &matches).unwrap();
+
+        if changed {
+            let result = prefs.save(&APP_INFO, PREFERENCES_KEY);
+            assert!(result.is_ok());
+        }
+
+        configure::list_preferences(&prefs, &matches)
     } else if let Some(ref matches) = matches.subcommand_matches("fetch") {
         let data = fetch::run_fetch_portfolio(&prefs, &matches).await.unwrap();
         fetch::print_portfolio_data(&data);

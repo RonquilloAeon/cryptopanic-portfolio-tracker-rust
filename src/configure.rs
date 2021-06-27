@@ -1,9 +1,10 @@
 use clap::ArgMatches;
-use preferences::{Preferences, PreferencesMap};
+use preferences::PreferencesMap;
 
-use crate::consts::{APP_INFO, PREFERENCES_KEY};
-
-pub fn manage_configuration(prefs: &mut PreferencesMap, matches: &ArgMatches) {
+pub fn manage_configuration(
+    prefs: &mut PreferencesMap,
+    matches: &ArgMatches,
+) -> Result<bool, std::io::Error> {
     // Handle changes
     let mut changed = false;
 
@@ -21,11 +22,10 @@ pub fn manage_configuration(prefs: &mut PreferencesMap, matches: &ArgMatches) {
         changed = true;
     }
 
-    if changed {
-        let result = prefs.save(&APP_INFO, PREFERENCES_KEY);
-        assert!(result.is_ok());
-    }
+    return if changed { Ok(true) } else { Ok(false) };
+}
 
+pub fn list_preferences(prefs: &PreferencesMap, matches: &ArgMatches) {
     // Optionally list preferences
     if matches.is_present("list") {
         for pref in prefs.into_iter() {
