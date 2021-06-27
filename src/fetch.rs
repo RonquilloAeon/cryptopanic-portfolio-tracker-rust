@@ -12,6 +12,7 @@ use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 
 use crate::consts::API_BASE_URL;
+use crate::ApplicationError;
 
 async fn fetch_portfolio_data(api_token: &String) -> Result<String, std::io::Error> {
     let client = reqwest::Client::new();
@@ -41,7 +42,7 @@ fn process_portfolio_data(
 }
 
 async fn save_portfolio(
-    data: HashMap<String, serde_json::Value>,
+    data: &HashMap<String, serde_json::Value>,
     data_dir: PathBuf,
 ) -> Result<(), std::io::Error> {
     // Get file name
@@ -62,7 +63,7 @@ async fn save_portfolio(
     Ok(())
 }
 
-fn print_portfolio_data(data: &HashMap<String, serde_json::Value>) {
+pub fn print_portfolio_data(data: &HashMap<String, serde_json::Value>) {
     for currency in &["BTC", "USD"] {
         println!(
             "Total ({}): {}",
@@ -91,31 +92,29 @@ pub fn get_data_dir(prefs: &PreferencesMap) -> Result<PathBuf, std::io::Error> {
 pub async fn run_fetch_portfolio(
     prefs: &PreferencesMap,
     matches: &ArgMatches,
-) -> Result<(), std::io::Error> {
+) -> Result<HashMap<String, serde_json::Value>, ApplicationError> {
     if !prefs.contains_key("api-token") {
-        println!("Please set your API token using 'configure' command")
+        return Err(ApplicationError::NoAPIToken);
     } else {
         let data_dir = match get_data_dir(&prefs) {
             Ok(path_buf) => path_buf,
-            Err(e) => panic!("Error selecting data dir: {}", e),
+            Err(_) => return Err(ApplicationError::DirectoryError),
         };
 
         let results = fetch_portfolio_data(prefs.get("api-token").unwrap()).await;
 
-        if results.is_ok() {
+        return if results.is_ok() {
             let data = process_portfolio_data(results.unwrap()).unwrap();
 
-            print_portfolio_data(&data);
-
             if !matches.is_present("no_save") {
-                save_portfolio(data, data_dir)
+                save_portfolio(&data, data_dir)
                     .await
-                    .expect("Error saving portfolio data to file");
+                    .map_err(|_| ApplicationError::DataSaveError)?;
             }
-        } else {
-            println!("Error fetching data: {}", results.err().unwrap())
-        }
-    }
 
-    Ok(())
+            Ok(data)
+        } else {
+            Err(ApplicationError::FetchError)
+        };
+    }
 }

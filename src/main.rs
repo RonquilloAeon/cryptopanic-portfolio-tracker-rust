@@ -1,11 +1,29 @@
 use clap::{App, Arg};
 use preferences::{Preferences, PreferencesMap};
+use std::error::Error;
+use std::fmt;
 
 mod configure;
 mod consts;
 mod fetch;
 
 use consts::{APP_INFO, PREFERENCES_KEY};
+
+#[derive(Debug)]
+pub enum ApplicationError {
+    FetchError,
+    DataSaveError,
+    DirectoryError,
+    NoAPIToken,
+}
+
+impl Error for ApplicationError {}
+
+impl fmt::Display for ApplicationError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "error: {:?}", self)
+    }
+}
 
 fn get_preferences() -> PreferencesMap {
     let result = PreferencesMap::<String>::load(&APP_INFO, PREFERENCES_KEY);
@@ -61,7 +79,8 @@ async fn main() {
     if let Some(ref matches) = matches.subcommand_matches("configure") {
         configure::manage_configuration(&mut prefs, &matches)
     } else if let Some(ref matches) = matches.subcommand_matches("fetch") {
-        fetch::run_fetch_portfolio(&prefs, &matches).await.unwrap()
+        let data = fetch::run_fetch_portfolio(&prefs, &matches).await.unwrap();
+        fetch::print_portfolio_data(&data);
     } else {
         println!("Please select a command to continue. Use --help to view usage.")
     }
